@@ -1,0 +1,10 @@
+/*
+  Order matters here (it matches the original site):
+  1. theme.css  -> your WAPI design system (colors, buttons, cards, animations)
+  2. Tailwind   -> utility classes like "flex", "mt-4", "md:grid-cols-2"
+*/
+@import "./theme.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

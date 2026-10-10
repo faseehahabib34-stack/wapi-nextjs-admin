@@ -1,0 +1,370 @@
+// This file describes your database tables ("models").
+// Prisma reads it to create the MySQL tables (migration) and to give
+// your code easy functions like prisma.faq.findMany().
+//
+// HOW THE DATA IS ORGANISED (see DATABASE.md for the full picture)
+//
+//   ADMIN         AdminUser
+//   GLOBAL        SiteSetting, HeaderSetting, FooterSetting, MenuItem,
+//   (every page)  DemoFormSetting + DemoFormInterest, Lead
+//   PAGES         Page
+//                  ├─ PageSeo            (Google + social sharing)
+//                  ├─ PageHero           (main heading + intro)
+//                  ├─ PageCta            (bottom call-to-action)
+//                  ├─ PageSubnavItem     (sticky sub-menu, Features page)
+//                  ├─ FaqGroup ─ Faq     (FAQ section)
+//                  └─ PageSection        (one block of the page, can be hidden)
+//                       ├─ SectionText   (headings, paragraphs, labels)
+//                       ├─ SectionLink   (where buttons / cards go)
+//                       ├─ SectionIcon   (icon names)
+//                       └─ SectionImage  (picture addresses)
+//   MEDIA         Media (uploaded pictures, stored in the database)
+//   PRICING       PricingPlan ─ PricingFeature
+//   OLD           LegacyContent (the old "everything in one table" - no longer used)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL") // comes from your .env file
+}
+
+// ───────────────────────────── ADMIN ─────────────────────────────
+
+// People who can log in to /admin
+model AdminUser {
+  id             Int       @id @default(autoincrement())
+  email          String    @unique @db.VarChar(191)
+  passwordHash   String    @db.VarChar(255) // the password is NEVER stored as plain text
+  failedAttempts Int       @default(0)      // wrong-password counter
+  lockedUntil    DateTime?                  // temporary lock after too many wrong passwords
+  createdAt      DateTime  @default(now())
+}
+
+// ──────────────────── GLOBAL DATA (used on every page) ────────────────────
+// The three "Setting" tables and DemoFormSetting always contain exactly ONE row (id = 1).
+// Every column is optional: an empty (NULL) column means "use the original text".
+
+// Logo + contact details (admin > Site Settings > Brand / Contact / SEO)
+model SiteSetting {
+  id             Int      @id @default(1)
+  logo           String?  @db.VarChar(1000)
+  logoAlt        String?  @db.VarChar(1000)
+  whatsappNumber String?  @db.VarChar(40) // digits only, with country code
+  phone          String?  @db.VarChar(1000)
+  email          String?  @db.VarChar(1000)
+  address        String?  @db.Text
+  defaultOgImage String?  @db.VarChar(1000) // social-share image for pages without their own
+  updatedAt      DateTime @updatedAt
+}
+
+// Top bar of every page (the menu LINKS are in MenuItem)
+model HeaderSetting {
+  id                 Int      @id @default(1)
+  ctaText            String?  @db.VarChar(1000)
+  ctaLink            String?  @db.VarChar(1000)
+  loginText          String?  @db.VarChar(1000)
+  loginLink          String?  @db.VarChar(1000)
+  dropdownLabel      String?  @db.VarChar(1000)
+  dropdownLink       String?  @db.VarChar(1000)
+  mobileCtaText      String?  @db.VarChar(1000)
+  mobileWhatsappText String?  @db.VarChar(1000)
+  updatedAt          DateTime @updatedAt
+}
+
+// Bottom of every page (the footer LINKS are in MenuItem)
+model FooterSetting {
+  id             Int      @id @default(1)
+  title          String?  @db.VarChar(1000)
+  text           String?  @db.Text
+  productTitle   String?  @db.VarChar(1000)
+  solutionsTitle String?  @db.VarChar(1000)
+  companyTitle   String?  @db.VarChar(1000)
+  copyright      String?  @db.VarChar(1000)
+  trademark      String?  @db.VarChar(1000)
+  ctaText        String?  @db.VarChar(1000)
+  ctaLink        String?  @db.VarChar(1000)
+  updatedAt      DateTime @updatedAt
+}
+
+// Menu links: header menu, header dropdown, the 3 footer columns and social links.
+// group = HEADER | HEADER_DROPDOWN | FOOTER_PRODUCT | FOOTER_SOLUTIONS | FOOTER_COMPANY | SOCIAL
+model MenuItem {
+  id           Int     @id @default(autoincrement())
+  group        String  @db.VarChar(40)
+  label        String  @db.VarChar(120)
+  href         String  @db.VarChar(255)
+  openInNewTab Boolean @default(false)
+  sortOrder    Int     @default(0)
+  published    Boolean @default(true)
+
+  @@index([group, sortOrder])
+}
+
+// The "Book your free demo" form: its texts (one row) ...
+model DemoFormSetting {
+  id                 Int                @id @default(1)
+  title              String?            @db.VarChar(1000)
+  subtitle           String?            @db.VarChar(1000)
+  namePlaceholder    String?            @db.VarChar(1000)
+  companyPlaceholder String?            @db.VarChar(1000)
+  phonePlaceholder   String?            @db.VarChar(1000)
+  interestDefault    String?            @db.VarChar(1000) // first, unselected option
+  button             String?            @db.VarChar(1000)
+  note               String?            @db.VarChar(1000)
+  whatsappMessage    String?            @db.VarChar(1000)
+  updatedAt          DateTime           @updatedAt
+  interests          DemoFormInterest[]
+}
+
+// ... and the options of its "I am interested in" drop-down
+model DemoFormInterest {
+  id        Int             @id @default(autoincrement())
+  formId    Int             @default(1)
+  label     String          @db.VarChar(1000)
+  sortOrder Int             @default(0)
+  form      DemoFormSetting @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId, sortOrder])
+}
+
+// People who filled in the "Book your free demo" form
+model Lead {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(120)
+  company   String   @db.VarChar(120)
+  phone     String   @db.VarChar(60)
+  interest  String   @db.VarChar(120)
+  handled   Boolean  @default(false) // tick it when you have contacted them
+  createdAt DateTime @default(now())
+}
+
+// ───────────────────────────── PAGES ─────────────────────────────
+
+// One row per website page: home, features, solutions, integrations, pricing, about
+model Page {
+  id          Int              @id @default(autoincrement())
+  slug        String           @unique @db.VarChar(60) // "home", "pricing"...
+  label       String           @db.VarChar(120)        // name shown in the admin
+  path        String           @db.VarChar(255)        // address on the website, e.g. "/pricing"
+  sortOrder   Int              @default(0)
+  seo         PageSeo?
+  hero        PageHero?
+  cta         PageCta?
+  subnavItems PageSubnavItem[]
+  faqGroups   FaqGroup[]
+  sections    PageSection[]
+}
+
+// What Google shows + what appears when the page is shared
+model PageSeo {
+  id            Int      @id @default(autoincrement())
+  pageId        Int      @unique
+  title         String?  @db.VarChar(1000)
+  description   String?  @db.Text
+  ogTitle       String?  @db.VarChar(1000)
+  ogDescription String?  @db.Text
+  ogImage       String?  @db.VarChar(1000)
+  canonical     String?  @db.VarChar(1000)
+  keywords      String?  @db.VarChar(1000)
+  noindex       Boolean  @default(false) // true = hide the page from Google
+  updatedAt     DateTime @updatedAt
+  page          Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+}
+
+// Main heading + intro at the top of a page.
+// Home / Features / Solutions use titleStart + titleGradient (+ titleEnd);
+// About / Pricing / Integrations use title. Unused columns stay empty.
+model PageHero {
+  id              Int      @id @default(autoincrement())
+  pageId          Int      @unique
+  title           String?  @db.VarChar(1000)
+  titleStart      String?  @db.VarChar(1000)
+  titleGradient   String?  @db.VarChar(1000)
+  titleEnd        String?  @db.VarChar(1000)
+  lead            String?  @db.Text
+  sub             String?  @db.Text
+  primaryButton   String?  @db.VarChar(1000)
+  secondaryButton String?  @db.VarChar(1000)
+  updatedAt       DateTime @updatedAt
+  page            Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+}
+
+// Call-to-action text near the bottom of a page (Home, Pricing)
+model PageCta {
+  id        Int      @id @default(autoincrement())
+  pageId    Int      @unique
+  title     String?  @db.VarChar(1000)
+  text1     String?  @db.Text
+  text2     String?  @db.Text
+  updatedAt DateTime @updatedAt
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+}
+
+// Sticky sub-menu under the header of the Features page
+model PageSubnavItem {
+  id        Int    @id @default(autoincrement())
+  pageId    Int
+  anchor    String @db.VarChar(40)   // which section it scrolls to: "api", "crm"...
+  label     String @db.VarChar(1000)
+  sortOrder Int    @default(0)
+  page      Page   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, anchor])
+}
+
+// A FAQ block of a page (heading + its questions)
+model FaqGroup {
+  id        Int     @id @default(autoincrement())
+  pageId    Int
+  heading   String? @db.VarChar(1000)
+  sortOrder Int     @default(0)
+  page      Page    @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  faqs      Faq[]
+
+  @@index([pageId])
+}
+
+// One question + answer
+model Faq {
+  id        Int      @id @default(autoincrement())
+  groupId   Int
+  question  String   @db.VarChar(255)
+  answer    String   @db.Text
+  sortOrder Int      @default(0)
+  published Boolean  @default(true)
+  group     FaqGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+}
+
+// One block of a page, from top to bottom ("s01", "s02"...). Can be hidden from the website.
+model PageSection {
+  id        Int            @id @default(autoincrement())
+  pageId    Int
+  code      String         @db.VarChar(20)  // "s01", "s02"... (the same code the page design uses)
+  title     String         @db.VarChar(120) // name shown in the admin, e.g. "Marketing"
+  sortOrder Int            @default(0)
+  visible   Boolean        @default(true)
+  page      Page           @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  texts     SectionText[]
+  links     SectionLink[]
+  icons     SectionIcon[]
+  images    SectionImage[]
+
+  @@unique([pageId, code])
+}
+
+// Headings, paragraphs, list items and the little labels inside the app screenshots
+model SectionText {
+  id        Int         @id @default(autoincrement())
+  sectionId Int
+  code      String      @db.VarChar(20) // "t001", "t002"...
+  value     String      @db.Text
+  updatedAt DateTime    @updatedAt
+  section   PageSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, code])
+}
+
+// Where a button or card goes
+model SectionLink {
+  id        Int         @id @default(autoincrement())
+  sectionId Int
+  code      String      @db.VarChar(20) // "l001"...
+  href      String      @db.VarChar(1000)
+  updatedAt DateTime    @updatedAt
+  section   PageSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, code])
+}
+
+// Icon names (from the icon list in the admin)
+model SectionIcon {
+  id        Int         @id @default(autoincrement())
+  sectionId Int
+  code      String      @db.VarChar(20) // "i001"...
+  icon      String      @db.VarChar(60)
+  updatedAt DateTime    @updatedAt
+  section   PageSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, code])
+}
+
+// Pictures (an uploaded file address like /uploads/photo.png, or a full https:// address)
+model SectionImage {
+  id        Int         @id @default(autoincrement())
+  sectionId Int
+  code      String      @db.VarChar(20) // "m001"...
+  url       String      @db.VarChar(1000)
+  updatedAt DateTime    @updatedAt
+  section   PageSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([sectionId, code])
+}
+
+// ───────────────────────────── MEDIA ─────────────────────────────
+
+// Every image uploaded in the admin (logos, photos ...). The picture itself is stored
+// in this table, so it also works on Vercel, where there is no permanent disk.
+// A picture is shown at /uploads/<name>; pages only store that address (SectionImage.url, SiteSetting.logo ...).
+model Media {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(100) // unique file name, e.g. "m1x2y3-ab12cd34ef.png"
+  mimeType  String   @db.VarChar(60)          // image/png, image/jpeg ...
+  size      Int                                // bytes
+  data      Bytes    @db.LongBlob             // the picture itself
+  createdAt DateTime @default(now())
+}
+
+// ───────────────────────────── PRICING ─────────────────────────────
+
+enum PlanStyle {
+  DEFAULT // white card, grey button
+  POPULAR // green border + "Most popular" badge + green button
+  DARK    // dark card (used for Enterprise)
+}
+
+// One card on the Pricing page
+model PricingPlan {
+  id              Int              @id @default(autoincrement())
+  name            String           @db.VarChar(120)
+  tagline         String           @db.VarChar(255) // green line under the name
+  description     String           @db.Text         // optional small text (can be empty)
+  price           String           @db.VarChar(120) // text, so "AED 199" or "Custom Pricing" both work
+  priceSuffix     String           @db.VarChar(60)  // for example "/ Month" (can be empty)
+  buttonText      String           @db.VarChar(120)
+  buttonLink      String           @db.VarChar(255)
+  featuresHeading String           @db.VarChar(120) // for example "INCLUDES"
+  style           PlanStyle        @default(DEFAULT)
+  sortOrder       Int              @default(0)
+  published       Boolean          @default(true)
+  features        PricingFeature[]
+}
+
+// One tick-mark line inside a pricing card
+model PricingFeature {
+  id        Int         @id @default(autoincrement())
+  text      String      @db.VarChar(255)
+  sortOrder Int         @default(0)
+  planId    Int
+  plan      PricingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+}
+
+// ───────────────────────────── OLD DATA ─────────────────────────────
+
+// The OLD single "Content" table (one row per text, key like "home.s03.t004").
+// The website no longer reads or writes it. It is kept ONLY so that no data is lost:
+// the migration copied everything from here into the tables above.
+// Once you have checked the new structure you can drop this table yourself.
+model LegacyContent {
+  key       String   @id @db.VarChar(191)
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("Content")
+}
